@@ -7,6 +7,8 @@ const passport = require('passport');
 require('./passport.cjs');
 const jwt = require('jsonwebtoken');
 const isAdmin  = require('./utils.cjs').isAdmin;
+const cors = require('cors');
+const createDynamicPaymentLink = require('./createPrice.cjs')
 
 
 //setup
@@ -35,10 +37,12 @@ const app = express()
 const PORT = process.env.PORT
 
 //middleware
-app.use(bodyParser.json());
+app.use(bodyParser.json({limit: '50mb'}));
 app.use(express.urlencoded({extended: true}));
 app.use(passport.initialize());
 const authenticateMiddleware = passport.authenticate('jwt', {session: false});
+app.use(cors());
+
 
 
 
@@ -93,6 +97,12 @@ app.get('/swagger.json', function(req, res) {
  *         description: Successfully created
  */
 app.post('/login', route.login)
+
+app.post('/auth0', (req, res) => {
+  res.json({domain: process.env.DOMAIN,
+    client_id: process.env.AUTHCLIENT_ID
+  })
+})
 
 /**
  * @swagger
@@ -510,6 +520,8 @@ app.post('/orders/:id', authenticateMiddleware, route.postOrderAndProduct);
  *         description: Successfully created
  */
 app.post('/cart/:id/checkout', authenticateMiddleware, route.checkout)
+
+app.post('/cart/:id/create-payment-link', authenticateMiddleware, route.createPaymentLink)
 
  module.exports = { isAdmin };
 app.listen(PORT, () => console.log(`server running on port ${PORT}`));

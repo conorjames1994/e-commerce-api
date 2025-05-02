@@ -2,6 +2,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const todaysDate = require('./utils.cjs').currentDate;
 const isAdmin  = require('./utils.cjs').isAdmin;
+const createDynamicPaymentLink = require('./createPrice.cjs')
 // setup postgres connection
 
 const Pool = require('pg').Pool
@@ -58,9 +59,12 @@ const login = async(req, res) => {
        console.log('running create new cart')
       const user_id = payload.user_id;
   
-      await pool.query('INSERT INTO cart(fk_user_id) VALUES($1) RETURNING *', [user_id]) 
+      const response = await pool.query('INSERT INTO cart(fk_user_id) VALUES($1) RETURNING *', [user_id]) 
       res.status(200).json({message: `${username} logging in, new cart created`,
-      token: 'Bearer ' + token});
+      token: 'Bearer ' + token,
+    user_id: user_id,
+    cart_id: response.rows[0].cart_id
+  });
 
       }
     
@@ -115,7 +119,6 @@ const getUserById = (req, res) => {
 //postuser
 
 const postUser = async (req, res) => {
-if(isAdmin(req) === true){
     try{
 
  console.log('postuser running');
@@ -124,7 +127,7 @@ if(isAdmin(req) === true){
  let password = bcrypt.hashSync(req.body.password, 10);
  
    const results = await pool.query('INSERT INTO users VALUES( $1, $2, $3, $4) RETURNING *', [name, email, username, password]);
-   res.status(201).json({message: `${results.rows[0].username} added to users`})
+   res.status(201).json({message: `${results.rows[0]} added to users`})
 
   }
   catch(err){
@@ -133,10 +136,7 @@ if(isAdmin(req) === true){
   } finally {
  return;
 };
-}
-else{
-  res.status(400).json({message: 'You must be admin to access this information'})
-}
+
 };
 
 const editUser = (req, res) => {
@@ -234,7 +234,7 @@ const getYourCart = (req, res) => {
   
  const user_id = parseInt(req.params.user_id)
 
- pool.query('SELECT cart_id, fk_product_id, name, price FROM cart, carts_products, products WHERE fk_user_id = $1 AND cart_id = fk_cart_id AND fk_product_id = product_id', [user_id], (err, results) => {
+ pool.query('SELECT cart_id, fk_product_id, name, price, image FROM cart, carts_products, products WHERE fk_user_id = $1 AND cart_id = fk_cart_id AND fk_product_id = product_id', [user_id], (err, results) => {
   if(err){
     console.log('error in query')
     throw(err)
@@ -299,9 +299,18 @@ const deleteAllProductsFromCart = (req, res) => {
     if(err){
       console.log('error in query')
     }
-    res.status(200).json({message: `All products in cart - ${cart_id} deleted`})
+  });
+  
+  pool.query('DELETE FROM cart WHERE cart_id = $1', [cart_id], (err, results) => {
+    if(err){
+      console.log("error in deleting actual a cart")
+    }
+    res.status(200).json({message: "cart deleted also"})
   })
+
 };
+
+
 
 //ORDERS routes
 //get order by id
@@ -341,7 +350,7 @@ const getAllOrdersByUser = (req, res) => {
 const postOrderAndProduct = (req, res) => {
   console.log('postorderandproduct running');
   const user_id = parseInt(req.params.id)
-  const { product_id } = req.body
+  const products  = req.body
    const status = 'Ordered';
    const date = todaysDate;
   pool.query('INSERT INTO orders(status, order_date, fk_user_id) VALUES ($1, $2, $3) RETURNING order_id AS order_id ', [status, date, user_id], (err, results) => {
@@ -351,14 +360,21 @@ const postOrderAndProduct = (req, res) => {
     }
     const order_id = results.rows[0].order_id;
    
-    pool.query('INSERT INTO products_orders VALUES($1, $2)', [product_id, order_id], (err, results) => {
+    if(Array.isArray(products) && products.length > 0) {
+      products.forEach((product) => {
+         pool.query('INSERT INTO products_orders VALUES($1, $2)', [product.fk_product_id, order_id], (err, results) => {
       if(err){
         console.log('error in query2');
         throw(err);
       }
 
-       res.status(200).json({message: `${status}, ${date}, ${user_id}, ${product_id}, ${order_id} added to orders and order_products`})
+       
     })
+      })
+      res.status(200).json({message: `${status}, ${date}, ${user_id}, ${products}, ${order_id} added to orders and order_products`})
+
+    }
+    
    
   })
 };
@@ -411,6 +427,15 @@ res.status(200).json(`Cart ${cart_id} read, payment validated, order created and
 }
 }
 
+const createPaymentLink = async (req, res) => {
+  console.log("running create dynamic links")
+  const products = req.body
+ 
+  const paymentLink = await createDynamicPaymentLink(products)
+  res.json(paymentLink)
+}
+
+
 module.exports = {
   getUsers, 
   getUserById,
@@ -430,6 +455,7 @@ module.exports = {
   getSpecificOrder,
   getAllOrdersByUser,
   postOrderAndProduct,
-  checkout
+  checkout,
+  createPaymentLink
 }
 
